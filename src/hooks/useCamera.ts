@@ -139,9 +139,20 @@ export function useCamera() {
       videoElement.srcObject = newStream;
 
       await new Promise<void>((resolve) => {
-        videoElement.onloadedmetadata = () => {
-          videoElement.play().then(() => resolve());
+        const handlePlay = () => {
+          videoElement.play()
+            .then(() => resolve())
+            .catch((err) => {
+              console.warn("video.play() failed, resolving anyway:", err);
+              resolve();
+            });
         };
+
+        if (videoElement.readyState >= 1) {
+          handlePlay();
+        } else {
+          videoElement.onloadedmetadata = handlePlay;
+        }
       });
 
       const actualFacing = getActiveFacingMode(newStream) || mode;
@@ -163,7 +174,34 @@ export function useCamera() {
         const fallbackConstraints = { video: true, audio: false };
         const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
         videoElement.srcObject = fallbackStream;
-        await videoElement.play();
+        
+        await new Promise<void>((resolve) => {
+          const handlePlay = () => {
+            videoElement.play()
+              .then(() => resolve())
+              .catch((err) => {
+                console.warn("fallback video.play() failed, resolving anyway:", err);
+                resolve();
+              });
+          };
+
+          if (videoElement.readyState >= 1) {
+            handlePlay();
+          } else {
+            videoElement.onloadedmetadata = handlePlay;
+          }
+        });
+
+        const actualFacing = getActiveFacingMode(fallbackStream) || mode;
+        setActiveFacingMode(actualFacing);
+        setFacingMode(mode);
+
+        if (actualFacing === 'user') {
+          videoElement.style.transform = 'scaleX(-1)';
+        } else {
+          videoElement.style.transform = 'scaleX(1)';
+        }
+
         setStream(fallbackStream);
         setIsCameraActive(true);
         return fallbackStream;
