@@ -1,6 +1,7 @@
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 export const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || '';
+export const SUPABASE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'dataset-photos-dev';
 
 // Hugging Face Credentials
 export const HF_TOKEN = process.env.NEXT_PUBLIC_HF_TOKEN || '';

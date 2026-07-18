@@ -1,5 +1,5 @@
 import { supabase, addPhotoRecord, deletePhotoRecord, getPhotos, updateDatasetPhotoCount, getPhotoPublicUrl, getUnsyncedPhotos, updatePhotosToSynced, PhotoHf } from './supabase';
-import { HF_TOKEN, HF_REPO } from './config';
+import { HF_TOKEN, HF_REPO, SUPABASE_BUCKET } from './config';
 
 const lastGeneratedIndexMap = new Map<string, number>();
 
@@ -9,16 +9,16 @@ const lastGeneratedIndexMap = new Map<string, number>();
 export async function getNextFileName(datasetId: string, datasetSlug: string): Promise<{ fileName: string; nextIndex: number | null }> {
   try {
     let nextIndex: number;
-    
+
     if (lastGeneratedIndexMap.has(datasetId)) {
       nextIndex = (lastGeneratedIndexMap.get(datasetId) || 0) + 1;
     } else {
       const photos = await getPhotos(datasetId);
       let maxIndex = 0;
-      
+
       if (photos && photos.length > 0) {
         const regex = new RegExp(`${datasetSlug}_(?:[a-z0-9]+_)?(\\d+)\\.jpg$`, 'i');
-        
+
         photos.forEach(photo => {
           const match = photo.file_name.match(regex);
           if (match) {
@@ -36,7 +36,7 @@ export async function getNextFileName(datasetId: string, datasetSlug: string): P
 
     const randomStr = Math.random().toString(36).substring(2, 7);
     const paddedIndex = String(nextIndex).padStart(3, '0');
-    
+
     return {
       fileName: `${datasetSlug}_${randomStr}_${paddedIndex}.jpg`,
       nextIndex
@@ -75,7 +75,7 @@ export async function uploadSinglePhoto(params: {
 
   // 1. Upload main image to Supabase Storage
   const { error: storageError } = await supabase.storage
-    .from('dataset-photos')
+    .from(SUPABASE_BUCKET)
     .upload(storagePath, processedBlob, {
       contentType: 'image/jpeg',
       upsert: true
@@ -87,7 +87,7 @@ export async function uploadSinglePhoto(params: {
   if (thumbnail) {
     try {
       await supabase.storage
-        .from('dataset-photos')
+        .from(SUPABASE_BUCKET)
         .upload(thumbnailPath, thumbnail, {
           contentType: 'image/jpeg',
           upsert: true
@@ -123,7 +123,7 @@ export async function uploadSinglePhoto(params: {
   } catch (dbError) {
     // Rollback storage if db insert fails
     try {
-      await supabase.storage.from('dataset-photos').remove([storagePath, thumbnailPath]);
+      await supabase.storage.from(SUPABASE_BUCKET).remove([storagePath, thumbnailPath]);
     } catch (rollbackErr) {
       console.error('Gagal rollback file buffer Supabase:', rollbackErr);
     }
@@ -154,7 +154,7 @@ export async function deletePhoto(photoId: string, storagePath: string): Promise
   await deletePhotoRecord(photoId);
 
   const thumbnailPath = storagePath.replace(/([^/]+)$/, 'thumbnails/$1');
-  
+
   if (storageProvider === 'huggingface' && HF_REPO) {
     const { deleteFile } = await import('@huggingface/hub');
     try {
@@ -173,7 +173,7 @@ export async function deletePhoto(photoId: string, storagePath: string): Promise
     }
   } else {
     const { error: storageError } = await supabase.storage
-      .from('dataset-photos')
+      .from(SUPABASE_BUCKET)
       .remove([storagePath, thumbnailPath]);
 
     if (storageError) {
@@ -223,14 +223,14 @@ export async function syncDatasetToHF(
 
     try {
       const { data: mainBlob, error: mainErr } = await supabase.storage
-        .from('dataset-photos')
+        .from(SUPABASE_BUCKET)
         .download(photo.storage_path);
-      
+
       if (mainErr) throw mainErr;
 
       const thumbPath = photo.storage_path.replace(/([^/]+)$/, 'thumbnails/$1');
       const { data: thumbBlob } = await supabase.storage
-        .from('dataset-photos')
+        .from(SUPABASE_BUCKET)
         .download(thumbPath);
 
       const targetPath = `data/${datasetSlug}/${photo.file_name}`;
@@ -281,15 +281,22 @@ export async function syncDatasetToHF(
   }
   await updatePhotosToSynced(dbUpdates);
 
-  if (onProgress) {
-    onProgress(total, total, `Membersihkan file buffer Supabase...`);
-  }
-  try {
-    await supabase.storage
-      .from('dataset-photos')
-      .remove(supabasePathsToDelete);
-  } catch (cleanErr) {
-    console.warn('Gagal membersihkan file buffer di Supabase Storage:', cleanErr);
+  const batchSize = 100;
+  for (let i = 0; i < supabasePathsToDelete.length; i += batchSize) {
+    const batch = supabasePathsToDelete.slice(i, i + batchSize);
+    if (onProgress) {
+      onProgress(total, total, `Membersihkan file buffer Supabase (${Math.min(i + batch.length, supabasePathsToDelete.length)}/${supabasePathsToDelete.length})...`);
+    }
+    try {
+      const { error: cleanErr } = await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .remove(batch);
+      if (cleanErr) {
+        console.warn(`Gagal membersihkan batch file buffer (${i} - ${i + batch.length}):`, cleanErr);
+      }
+    } catch (err) {
+      console.warn(`Gagal membersihkan batch file buffer (${i} - ${i + batch.length}):`, err);
+    }
   }
 
   return { syncedCount: dbUpdates.length };
@@ -327,16 +334,20 @@ export async function deletePhotosBulk(photosToDelete: PhotoHf[]): Promise<boole
       sbPaths.push(photo.storage_path, thumbPath);
     });
 
-    try {
-      const { error: storageError } = await supabase.storage
-        .from('dataset-photos')
-        .remove(sbPaths);
+    const batchSize = 100;
+    for (let i = 0; i < sbPaths.length; i += batchSize) {
+      const batch = sbPaths.slice(i, i + batchSize);
+      try {
+        const { error: storageError } = await supabase.storage
+          .from(SUPABASE_BUCKET)
+          .remove(batch);
 
-      if (storageError) {
-        console.error('Gagal menghapus file bulk dari Supabase Storage:', storageError);
+        if (storageError) {
+          console.error(`Gagal menghapus batch file bulk dari Supabase Storage (${i} - ${i + batch.length}):`, storageError);
+        }
+      } catch (e) {
+        console.error(`Terjadi kesalahan saat menghapus batch file bulk dari Supabase Storage (${i} - ${i + batch.length}):`, e);
       }
-    } catch (e) {
-      console.error('Terjadi kesalahan saat menghapus file bulk dari Supabase Storage:', e);
     }
   }
 
@@ -345,7 +356,7 @@ export async function deletePhotosBulk(photosToDelete: PhotoHf[]): Promise<boole
     try {
       const { commit } = await import('@huggingface/hub');
       const operations: any[] = [];
-      
+
       hfPhotos.forEach(photo => {
         const thumbPath = photo.storage_path.replace(/([^/]+)$/, 'thumbnails/$1');
         operations.push({

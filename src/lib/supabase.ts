@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, HF_TOKEN, HF_REPO_ID, HF_REPO } from './config';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, HF_TOKEN, HF_REPO_ID, HF_REPO, SUPABASE_BUCKET } from './config';
 
 // Initialize Supabase Client
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -51,7 +51,7 @@ export function getPhotoPublicUrl(photo: PhotoHf): string {
   }
   
   const { data } = supabase.storage
-    .from('dataset-photos')
+    .from(SUPABASE_BUCKET)
     .getPublicUrl(photo.storage_path);
   return data?.publicUrl || '';
 }
@@ -227,7 +227,7 @@ export async function checkDatasetSync(datasetId: string, datasetSlug: string): 
   // 1. Fetch files from Supabase Storage
   try {
     const { data: storageFiles, error: storageErr } = await supabase.storage
-      .from('dataset-photos')
+      .from(SUPABASE_BUCKET)
       .list(datasetSlug, { limit: 1000 });
       
     if (!storageErr && storageFiles) {
@@ -243,7 +243,7 @@ export async function checkDatasetSync(datasetId: string, datasetSlug: string): 
     }
 
     const { data: thumbnailFiles, error: thumbErr } = await supabase.storage
-      .from('dataset-photos')
+      .from(SUPABASE_BUCKET)
       .list(`${datasetSlug}/thumbnails`, { limit: 1000 });
       
     if (!thumbErr && thumbnailFiles) {
@@ -368,7 +368,7 @@ export async function repairDatasetSync(datasetId: string, datasetSlug: string, 
       }
     } else {
       const { error: deleteErr } = await supabase.storage
-        .from('dataset-photos')
+        .from(SUPABASE_BUCKET)
         .remove([orphan.path]);
       if (deleteErr) {
         console.warn(`Gagal menghapus orphan ${orphan.path} di Supabase Storage:`, deleteErr);
