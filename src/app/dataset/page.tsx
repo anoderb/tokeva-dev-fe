@@ -16,8 +16,7 @@ import {
   CheckCircle,
   Cloud,
   ChevronRight,
-  Download,
-  PackageDownload
+  Download
 } from 'lucide-react';
 
 export default function DatasetListPage() {
@@ -214,7 +213,7 @@ export default function DatasetListPage() {
                 </>
               ) : (
                 <>
-                  <PackageDownload className="w-4 h-4" />
+                  <Download className="w-4 h-4" />
                   <span>Unduh Semua Dataset (ZIP All)</span>
                 </>
               )}
