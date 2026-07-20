@@ -339,7 +339,7 @@ export async function checkQuality(blob: Blob, options: QualityOptions = {}): Pr
     minWidth: 480,
     minHeight: 480,
     blurThreshold: 5,        
-    darkThreshold: 0,        // Deteksi kecerahan gelap dinonaktifkan
+    darkThreshold: 45,       // Kecerahan rata-rata di bawah ini dianggap terlalu gelap
     brightThreshold: 225,    
     noiseThreshold: 35,      
     analysisSize: 160        
@@ -384,8 +384,7 @@ export async function checkQuality(blob: Blob, options: QualityOptions = {}): Pr
     const blurScore = checkBlur(grayscale, targetWidth, targetHeight);
     const noiseScore = checkNoise(grayscale, targetWidth, targetHeight);
 
-    // Periksa kecerahan (hanya periksa jika terlalu terang atau jika darkThreshold diatur > 0 secara eksplisit)
-    if (config.darkThreshold > 0 && brightness < config.darkThreshold) {
+    if (brightness < config.darkThreshold) {
       issues.push('dark');
     } else if (brightness > config.brightThreshold) {
       issues.push('bright');

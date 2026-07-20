@@ -168,8 +168,19 @@ function CollectPageContent() {
     try {
       const qualityResult = await checkQuality(rawBlob);
       if (!qualityResult.passed) {
-        alert(`Kualitas foto kurang baik: ${qualityResult.issues.join(', ')}`);
-        return;
+        const issueMap: Record<string, string> = {
+          dark: 'gelap',
+          bright: 'terlalu terang',
+          blur: 'buram / blur',
+          noise: 'noise / berbintik',
+          small: 'ukuran terlalu kecil',
+          corrupt: 'gambar rusak'
+        };
+        const issueText = qualityResult.issues.map(i => issueMap[i] || i).join(', ');
+        const confirmSave = window.confirm(`Kualitas foto kurang baik (${issueText}).\n\nApakah Anda tetap ingin menyimpan?`);
+        if (!confirmSave) {
+          return;
+        }
       }
 
       const processed = await processImage(rawBlob);
