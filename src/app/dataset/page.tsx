@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getDatasets, DatasetHf } from '../../lib/supabase';
+import JSZip from 'jszip';
+import { getDatasets, getPhotos, getPhotoPublicUrl, DatasetHf } from '../../lib/supabase';
 import {
   ArrowLeft,
   Search,
@@ -14,7 +15,8 @@ import {
   Layers,
   CheckCircle,
   Cloud,
-  ChevronRight
+  ChevronRight,
+  Download
 } from 'lucide-react';
 
 export default function DatasetListPage() {
@@ -22,6 +24,8 @@ export default function DatasetListPage() {
   const [datasets, setDatasets] = useState<DatasetHf[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [downloadingZipId, setDownloadingZipId] = useState<string | null>(null);
+  const [zipProgressText, setZipProgressText] = useState<string>('');
 
   const fetchDatasets = async () => {
     try {
@@ -38,6 +42,56 @@ export default function DatasetListPage() {
   useEffect(() => {
     fetchDatasets();
   }, []);
+
+  const handleDownloadDatasetZip = async (e: React.MouseEvent, dataset: DatasetHf) => {
+    e.stopPropagation(); // Mencegah navigasi card click
+    if (downloadingZipId) return;
+
+    setDownloadingZipId(dataset.id);
+    setZipProgressText(`Memuat...`);
+
+    try {
+      const photos = await getPhotos(dataset.id);
+      if (!photos || photos.length === 0) {
+        alert("Dataset ini belum memiliki foto.");
+        setDownloadingZipId(null);
+        return;
+      }
+
+      const zip = new JSZip();
+      const folder = zip.folder(dataset.slug);
+
+      for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
+        setZipProgressText(`${i + 1}/${photos.length}`);
+
+        const url = getPhotoPublicUrl(photo);
+        if (!url) continue;
+
+        const res = await fetch(url);
+        if (!res.ok) continue;
+
+        const blob = await res.blob();
+        folder?.file(photo.file_name, blob);
+      }
+
+      setZipProgressText("ZIP...");
+      const content = await zip.generateAsync({ type: "blob" });
+      
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(content);
+      a.download = `${dataset.slug}_dataset.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Gagal mengunduh ZIP dataset:", err);
+      alert("Gagal mengunduh berkas ZIP.");
+    } finally {
+      setDownloadingZipId(null);
+      setZipProgressText('');
+    }
+  };
 
   const filteredDatasets = datasets.filter((d) =>
     d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -105,7 +159,7 @@ export default function DatasetListPage() {
             {filteredDatasets.map((dataset) => (
               <div
                 key={dataset.id}
-                className="p-5 rounded-2xl bg-slate-900/20 border border-slate-900 hover:border-slate-800 hover:bg-slate-900/30 transition-all flex flex-col justify-between h-[180px] group cursor-pointer"
+                className="p-5 rounded-2xl bg-slate-900/20 border border-slate-900 hover:border-slate-800 hover:bg-slate-900/30 transition-all flex flex-col justify-between h-[190px] group cursor-pointer"
                 onClick={() => router.push(`/dataset/collect?id=${dataset.id}&slug=${dataset.slug}&name=${encodeURIComponent(dataset.name)}`)}
               >
                 <div className="space-y-3">
@@ -128,10 +182,31 @@ export default function DatasetListPage() {
                     <span>HF Synced</span>
                   </div>
                   
-                  <span className="text-[11px] font-bold text-blue-400 group-hover:text-blue-300 flex items-center space-x-0.5">
-                    <span>Mulai Capture</span>
-                    <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={(e) => handleDownloadDatasetZip(e, dataset)}
+                      disabled={!!downloadingZipId || dataset.photo_count === 0}
+                      title="Unduh Dataset ke ZIP"
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-blue-600/20 disabled:opacity-40 text-slate-300 hover:text-blue-400 border border-slate-800 hover:border-blue-500/40 transition-all flex items-center space-x-1"
+                    >
+                      {downloadingZipId === dataset.id ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                          <span className="text-[10px] font-mono">{zipProgressText}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="text-[10px] font-semibold">ZIP</span>
+                        </>
+                      )}
+                    </button>
+
+                    <span className="text-[11px] font-bold text-blue-400 group-hover:text-blue-300 flex items-center space-x-0.5">
+                      <span>Capture</span>
+                      <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

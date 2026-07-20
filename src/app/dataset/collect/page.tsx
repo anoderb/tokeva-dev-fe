@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useTransition, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { supabase, PhotoHf, getPhotos, deletePhotoRecord } from '../../../lib/supabase';
+import { supabase, PhotoHf, getPhotos, deletePhotoRecord, getPhotoPublicUrl } from '../../../lib/supabase';
 import { uploadSinglePhoto, deletePhoto, deletePhotosBulk } from '../../../lib/upload';
 import { processImage, checkQuality, SmartFilter } from '../../../lib/image-processor';
 import { useCamera } from '../../../hooks/useCamera';
@@ -382,25 +382,33 @@ function CollectPageContent() {
     }
   };
 
+  // State indikator progress ekspor ZIP
+  const [zipProgress, setZipProgress] = useState<string | null>(null);
+
   // ZIP download generator
   const handleDownloadZip = async () => {
-    if (photos.length === 0) return;
+    if (photos.length === 0 || zipProgress) return;
     const zip = new JSZip();
     const folder = zip.folder(datasetSlug);
 
-    alert("Mengekspor berkas dataset ke ZIP. Mohon tunggu...");
+    setZipProgress(`Mempersiapkan ${photos.length} foto...`);
 
     try {
       for (let i = 0; i < photos.length; i++) {
         const photo = photos[i];
-        const res = await fetch(photo.storage_path.startsWith('data/') 
-          ? `https://huggingface.co/datasets/Anoderb/dataset-collect/resolve/main/${photo.storage_path}`
-          : supabase.storage.from('dataset-photos').getPublicUrl(photo.storage_path).data.publicUrl);
-        
+        setZipProgress(`Mendownload (${i + 1}/${photos.length}): ${photo.file_name}`);
+
+        const url = getPhotoPublicUrl(photo);
+        if (!url) continue;
+
+        const res = await fetch(url);
+        if (!res.ok) continue;
+
         const blob = await res.blob();
         folder?.file(photo.file_name, blob);
       }
 
+      setZipProgress("Mengompresi ke format ZIP...");
       const content = await zip.generateAsync({ type: "blob" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(content);
@@ -408,9 +416,12 @@ function CollectPageContent() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      
+      setZipProgress(null);
     } catch (err) {
       console.error("Gagal mendownload ZIP:", err);
       alert("Gagal mengunduh berkas ZIP.");
+      setZipProgress(null);
     }
   };
 
@@ -433,11 +444,20 @@ function CollectPageContent() {
 
         <button
           onClick={handleDownloadZip}
-          disabled={photos.length === 0}
-          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-900 border border-slate-800 text-slate-300 font-semibold rounded-lg flex items-center space-x-2 text-xs transition-colors"
+          disabled={photos.length === 0 || !!zipProgress}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 border border-blue-500 text-white font-semibold rounded-xl flex items-center space-x-2 text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95"
         >
-          <Download className="w-4 h-4" />
-          <span>Unduh ZIP</span>
+          {zipProgress ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin text-white" />
+              <span className="font-mono text-[11px]">{zipProgress}</span>
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" />
+              <span>Unduh ZIP ({photos.length} Foto)</span>
+            </>
+          )}
         </button>
       </div>
 
